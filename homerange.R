@@ -1,3 +1,8 @@
+# This script has the results of the linear regression analysis 
+# performed on the Kelt & Van Vuren (2015). Also, I wrote a function
+# to estimate the home range of a species based on its diet and body
+# mass.
+
 H <- data.frame(
   c(-2.64,-2.17,-1.84), #intercepts
   c(0.180,0.245,0.328), #intercepts SE
