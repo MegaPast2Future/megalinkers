@@ -24,7 +24,7 @@ pn_cont %>%
   as_tibble() %>%
   write_csv("../../../../../Results/pn_list.csv")
 
-# present-natural extant species -----
+# full rewilding  -----
 pne_cont <- list()
 species <- phy %>%
   filter(!IUCN.Status.1.2 %in% c('EP', 'EX', 'EW')) %>% 
@@ -42,10 +42,44 @@ gc()
 
 pne_cont %>% 
   as_tibble() %>%
-  write_csv("../../../../../Results/pne_list.csv")
+  write_csv("../../../../../Results/frw_list.csv")
+
+# conservative rewilding  -----
+crw_cont <- list()
+species <- phy %>% 
+  filter(
+    !IUCN.Status.1.2 %in% c('EP', 'EX', 'EW'),
+    !(Diet == "H" & Mass.g > 500000),
+    !(Diet == "C" & Mass.g > 100000),
+    !(Diet == "O" & Mass.g > 100000)
+  ) %>% 
+  pull(Binomial.1.2)
+species_current <- phy %>% 
+  filter(
+    !IUCN.Status.1.2 %in% c('EP', 'EX', 'EW'),
+    !Binomial.1.2 %in% species
+  ) %>% 
+  pull(Binomial.1.2)
+crw1 <- stack(paste0(species, ".tif"), quick = TRUE)
+setwd('../Current')
+crw2 <- stack(paste0(species_current, ".tif"), quick = TRUE)
+crw <- stack(crw1, crw2, quick = TRUE)
+species <- union(species, species_current)
+foreach (i = species, .combine = "rbind") %dopar% {
+  r <- continents * crw[[i]]
+  r_cont <- names(continents)[apply(values(r), MARGIN = 2, max, na.rm = TRUE) == 1]
+  if (!is_empty(r_cont)) {
+    data.frame(Continent = r_cont, Species = i)
+  }
+} -> crw_cont
+rm(crw, cont.list, crw_list)
+gc()
+
+crw_cont %>% 
+  as_tibble() %>%
+  write_csv("../../../../../Results/crw_list.csv")
 
 # current -----
-setwd('../Current')
 cu_cont <- list()
 species <- phy %>%
   filter(!IUCN.Status.1.2 %in% c('EP', 'EX', 'EW')) %>% 
@@ -92,7 +126,8 @@ setwd("../../../../..")
 
 bind_rows(
   pn_cont %>% as_tibble %>% mutate(Scenario = "PN"),
-  pne_cont %>% as_tibble %>% mutate(Scenario = "PNE"),
+  pne_cont %>% as_tibble %>% mutate(Scenario = "FRW"),
+  crw_cont %>% as_tibble %>% mutate(Scenario = "CRW"),
   cu_cont %>% as_tibble %>% mutate(Scenario = "CU"),
   th_cont %>% as_tibble %>% mutate(Scenario = "TH")
 ) %>% 
@@ -108,17 +143,3 @@ bind_rows(
   write_csv("Results/continent_list.csv")
 
 stopImplicitCluster()
-
-# analysis ------
-res <- read_csv("Results/continent_list.csv")
-
-x <- res %>% 
-  filter(Scenario == "PN", Continent == "north.america") %>% 
-  pull(`Home range`)
-
-y <- res %>% 
-  filter(Scenario == "CU", Continent == "north.america") %>% 
-  pull(`Home range`)
-
-es <- new_effect_size(x, y)
-magnitude(es$`P(X > Y)`)

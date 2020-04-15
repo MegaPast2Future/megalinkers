@@ -19,7 +19,11 @@ new_effect_size <- function(x, y, global = T, area = 'World'){
   # all ties
   E <- sum(unlist(1:length(x) %>% map(function(i) sum(x[i] == y))))
   # total
-  Tot <- P + N + E
+  Tot <- tryCatch(P + N + E, 
+                  warning = function(w) {
+                    warning(w, "Coercing to numeric, results might be inaccurate")
+                    as.numeric(P) + as.numeric(N) + as.numeric(E)
+                    })
   r = (P - N) / (Tot)
   prob = P / Tot
   fraction = 10^mean(y - x)

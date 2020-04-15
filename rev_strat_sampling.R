@@ -1,7 +1,7 @@
 continents <- stack("Data/continents-stack.envi")
 names(continents) <- c("africa", "asia", "australasia", "europe", "north.america", "south.america")
 
-registerDoParallel(3) #on my personal laptop, COVID outbreak. Around ---- hours per scenario
+registerDoParallel(3) #on my personal laptop, COVID outbreak. Around 50 minutes per scenario
 
 # present-natural -----
 setwd('Data/PHYLACINE_1.2.0/Data/Ranges/Present_natural')
@@ -81,7 +81,7 @@ pn_cont %>%
   as_tibble() %>%
   write_csv("../../../../../Results/pn_richness.csv")
 
-# present-natural extant species -----
+# full rewilding -----
 mc <- phy %>%
   filter(Mass.g >= 10^5,
          Diet == "C" | Diet == "O",
@@ -160,10 +160,102 @@ rm(pne, cont.list, pne_list)
 gc()
 pne_cont %>% 
   as_tibble() %>%
-  write_csv("../../../../../Results/pne_richness.csv")
+  write_csv("../../../../../Results/frw_richness.csv")
+
+# conservative rewilding -----
+mc <- phy %>%
+  filter(Mass.g >= 10^5,
+         Diet == "C" | Diet == "O",
+         !IUCN.Status.1.2 %in% c('EP', 'EX', 'EW')) %>% 
+  pull(Binomial.1.2)
+lc <- phy %>%
+  filter(Mass.g < 10^5,
+         Mass.g >= 21500,
+         Diet == "C" | Diet == "O",
+         !IUCN.Status.1.2 %in% c('EP', 'EX', 'EW')) %>% 
+  pull(Binomial.1.2)
+sc <- phy %>%
+  filter(Mass.g < 21500,
+         Diet == "C" | Diet == "O",
+         !IUCN.Status.1.2 %in% c('EP', 'EX', 'EW')) %>% 
+  pull(Binomial.1.2)
+mh <- phy %>%
+  filter(Mass.g >= 10^6,
+         Diet == "H",
+         !IUCN.Status.1.2 %in% c('EP', 'EX', 'EW')) %>% 
+  pull(Binomial.1.2)
+lh <- phy %>%
+  filter(Mass.g < 10^6,
+         Mass.g >= 45000,
+         Mass.g < 500000,
+         Diet == "H",
+         !IUCN.Status.1.2 %in% c('EP', 'EX', 'EW')) %>% 
+  pull(Binomial.1.2)
+lh_current <- phy %>%
+  filter(Mass.g < 10^6,
+         Mass.g >= 500000,
+         Diet == "H",
+         !IUCN.Status.1.2 %in% c('EP', 'EX', 'EW')) %>% 
+  pull(Binomial.1.2)
+sh <- phy %>%
+  filter(Mass.g < 45000,
+         Diet == "H",
+         !IUCN.Status.1.2 %in% c('EP', 'EX', 'EW')) %>% 
+  pull(Binomial.1.2)
+crw <- list(stack(paste0("../Current/", mc, ".tif"), quick = TRUE),
+            stack(paste0(lc, ".tif"), quick = TRUE),
+            stack(paste0(sc, ".tif"), quick = TRUE),
+            stack(paste0("../Current/", mh, ".tif"), quick = TRUE),
+            stack(
+              stack(paste0(lh, ".tif"), quick = TRUE),
+              stack(paste0("../Current/", lh_current, ".tif"), quick = TRUE),
+              quick = TRUE
+            ),
+            stack(paste0(sh, ".tif"), quick = TRUE))
+names(crw) <- c("Megacarnivores", 
+                "Large carnivores",
+                "Small carnivores",
+                "Megaherbivores",
+                "Large herbivores",
+                "Small herbivores")
+foreach (i = names(crw), .combine = "rbind") %do% {
+  if (dim(crw[[i]])[3] < 150) {
+    r <- sum(crw[[i]])
+    r <- continents * r
+  } else {
+    foreach (j = 1:ceiling(dim(crw[[i]])[3] / 150), .combine = "list") %dopar% {
+      sub_pn <- list()
+      if (j != ceiling(dim(crw[[i]])[3] / 150)) {
+        sub_pn[[j]] <- crw[[i]][[(1 + 150 * (j - 1)):(150 * j)]]
+        sub_pn[[j]] <- sum(sub_pn[[j]])
+      } else {
+        sub_pn[[j]] <- crw[[i]][[(1 + 150 * (j - 1)):(dim(crw[[i]])[3])]]
+        sub_pn[[j]] <- sum(sub_pn[[j]])
+      }
+      sub_pn[[j]]
+    } -> r
+    r <- unlist(r)
+    r <- sum(stack(r))
+    r <- continents * r
+  }
+  Mean <- apply(values(r), MARGIN = 2, mean, na.rm = TRUE)
+  Std <- apply(values(r), MARGIN = 2, sd, na.rm = TRUE)
+  Median <- apply(values(r), MARGIN = 2, median, na.rm = TRUE)
+  data.frame(Continent = names(continents),
+             Mean = Mean,
+             Std = Std,
+             Median = Median,
+             Class = i)
+} -> crw_cont
+Sys.time() - T0
+rm(crw, cont.list, crw_list)
+gc()
+crw_cont %>% 
+  as_tibble() %>%
+  write_csv("../../../../../Results/crw_richness.csv")
 
 # current -----
-setwd('../Current')
+setwd("../Current")
 mc <- phy %>%
   filter(Mass.g >= 10^5,
          Diet == "C" | Diet == "O",
@@ -196,7 +288,6 @@ sh <- phy %>%
          Diet == "H",
          !IUCN.Status.1.2 %in% c('EP', 'EX', 'EW')) %>% 
   pull(Binomial.1.2)
-
 cu <- list(stack(paste0(mc, ".tif"), quick = TRUE),
            stack(paste0(lc, ".tif"), quick = TRUE),
            stack(paste0(sc, ".tif"), quick = TRUE),
@@ -245,7 +336,6 @@ gc()
 pn_cont %>% 
   as_tibble() %>%
   write_csv("../../../../../Results/cu_richness.csv")
-
 
 # threatened species -----
 mc <- phy %>%
@@ -329,38 +419,17 @@ th_cont %>%
   as_tibble() %>%
   write_csv("../../../../../Results/th_richness.csv")
 
-stopImplicitCluster()
-
 # combine results and write csv -----
 setwd("../../../../..")
 
 bind_rows(
   pn_cont %>% as_tibble %>% mutate(Scenario = "PN"),
-  pne_cont %>% as_tibble %>% mutate(Scenario = "PNE"),
+  pne_cont %>% as_tibble %>% mutate(Scenario = "FRW"),
+  crw_cont %>% as_tibble %>% mutate(Scenario = "CRW"),
   cu_cont %>% as_tibble %>% mutate(Scenario = "CU"),
   th_cont %>% as_tibble %>% mutate(Scenario = "TH")
 ) %>% 
-  left_join(transmute(phy, 
-                      Species = Binomial.1.2, 
-                      Mass.g,
-                      Diet,
-                      IUCN.Status.1.2,
-                      `Home range` = map2(Diet, Mass.g, function(x, y){
-                        homerange(x, y)[1]
-                      }) %>% unlist())) %>% 
   #filter_all(any_vars(is.na(.)))
   write_csv("Results/strat_sampl.csv")
 
-# analysis ------
-res <- read_csv("Results/continent_list.csv")
-
-x <- res %>% 
-  filter(Scenario == "PN", Continent == "north.america") %>% 
-  pull(`Home range`)
-
-y <- res %>% 
-  filter(Scenario == "CU", Continent == "north.america") %>% 
-  pull(`Home range`)
-
-es <- new_effect_size(x, y)
-magnitude(es$`P(X > Y)`)
+stopImplicitCluster()
